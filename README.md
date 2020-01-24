@@ -1,6 +1,6 @@
 # **TOUCAN: Supervised learning for fungal BGC discovery**
 
-A supervised learning approach to predict Biosynthetic Gene Clusters (BGCs) in fungi based on a combination of feature types (k-mers, Pfam protein domains, and GO terms). 
+A supervised learning framework to predict Biosynthetic Gene Clusters (BGCs) in fungi based on a combination of feature types (k-mers, Pfam protein domains, and GO terms). 
 
 ## **How to: Classification**
 
