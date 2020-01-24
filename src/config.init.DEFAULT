@@ -1,0 +1,91 @@
+[default]
+home =              /path/to/home/
+
+[corpusPrep]
+corpus.home =       ${default:home}/corpus
+source.path =       ${default:home}/path/to/source
+result.path =       ${default:home}/path/to/result
+pos.path =          ${default:home}/path/to/positives/folder
+neg.path =          ${default:home}/path/to/negatives/folder
+pos.ids =           ${default:home}/Databases/posClusterIds
+pos.filters =       ${default:home}/Databases/testOrgClusterIds
+# task ->           'shuffle', 'selectvalid', 'split', 'similarity', 'domain', 'goterms', 'pfamtsv'
+task =              shuffle
+slim.ids =          True
+# source type ->    'gbk', 'fasta'
+source.ext =        gbk
+# sequence type ->  nucleotide or aminoacid
+source.type =       'aminoacid'
+# approximate number of characters per cluster (bps or aminoacids)
+cluster.length =    7000
+valid.perc =         20
+pos.perc =          0.5
+# overlap of cluster windows, percentage from 0 to 100
+window.overlap =    50
+
+[parsers]
+source.path =       /path/to/Databses/or/parse/files
+
+[dataPipeline]
+# source type ->    'domain' or 'blast'
+task =              blast
+result.path =       ${corpusPrep:corpus.home}/path/to/output/
+source.path =       ${corpusPrep:corpus.home}/path/to/source/
+# source type ->    'fasta-protein' or 'fasta-nucleotide' or 'genbank'
+source.type =       fasta-protein
+
+[blaster]
+blastdb.path =      ${default:home}/path/to/Databases/blastdb/
+blastdb.name =      name_of_blastdb
+
+[domainFinder]
+pfamScan.path =     ${default:home}/PfamScan
+pfamScript =        ${pfamScan.path}/pfam_scan.pl
+pfamDBs.path =      ${pfamScan.path}/PfamDB
+hmmerBin.path =     ${pfamScan.path}/hmmer/bin/
+
+[prediction]
+# task type: 'train', 'validation', 'test'
+task =              train
+source.path =       ${corpusPrep:corpus.home}/path/to/corpus
+# source type ->  (if using sequences) nucleotide, aminoacid
+source.type =       aminoacid
+use.crossvalid =    False
+# percentage of positives in the train (path) dataset
+pos.perc =          50
+dict.path =         ${default:home}/Databases/path/to/dict
+# feature type: 'domains', 'kmers', 'dictionary'
+feat.type =         domains
+feat.minOcc =       2
+feat.size =         3
+# if no feature reduction, set to 'none'
+feat.reduc =        none
+# classifier ->     'mlp', 'nusvc', 'svc', 'linearsvc', 'randomforest', 'logit'
+classifier =        mlp
+###### DL ONLY ######
+nb.gpus =           0
+# initial epoch to resume saved model (0 if no model to load)
+initial.epoch =     0
+use.embeddings =    True
+embeddings.length = 50
+# CBOW or Skipgram
+embeddings.type =   cbow
+class.weights =     True
+#nn arch type ->   LSTM, CNN
+nn.type =           lstm
+#####################
+
+[eval]
+# task type: 'evaluate', 'summarize'
+task =              evaluate
+goldID.path =       ${default:home}/Database/goldclusters
+result.path =       ${corpusPrep:corpus.home}/path/to/corpus/metrics/
+similarity.path =   ${default:home}/path/to/similarity.blast
+# min prediction confidence value to be rounded to 1
+threshold =         0.5
+# successive positive clusters: '0' > value > '3'
+successive =        0
+# merge positive clusters: 'True' or 'False'
+merge = False
+# use similarity scores: True or False
+similarity =        False
