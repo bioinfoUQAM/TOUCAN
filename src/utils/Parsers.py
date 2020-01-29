@@ -8,7 +8,6 @@ import os
 
 
 def parseDatasetContents(dataPath, featType, sourceType):
-
     files, result = [], []
     if ('domain' in featType or 'dictionary' in featType):
         domainFiles = Utils.listFilesExt(dataPath, 'domains')
@@ -229,9 +228,3 @@ def mergeByClusterIds(source, filterIds):
         result.append(content)
 
     return result, clusterdic
-
-
-
-
-
-

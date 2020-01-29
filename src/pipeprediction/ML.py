@@ -40,13 +40,10 @@ class ML:
         self.posPerc = int(self.config.get('prediction', 'pos.perc'))
         self.classif = self.config.get('prediction', 'classifier')
         self.cv = self.config.getboolean('prediction', 'use.crossvalid')
-
         os.makedirs(os.path.dirname(self.outputPath), exist_ok=True)
         self.extractor = Extractor.Extractor(self.config, self.outputPath)
         self.loader = Loader.Loader(self.config, self.outputPath)
         self.dimHandler = DimensionHandler.DimensionHandler(self.config, self.outputPath)
-
-
         self.outFile = ''
         if (not 'none' in self.dimHandler.name.lower()):
             self.outFile = self.dimHandler.getOutFile(self.classif)
@@ -65,15 +62,11 @@ class ML:
 
 
     def main(self):
-
         sparkContext = SparkContext(conf=self.extractor.initSpark())
-
         if (not os.path.isfile(self.extractor.featFile)):
             self.extractor.extractFeatures(self.trainPath, sparkContext, featPerInst=False)
-
         if (not os.path.isfile(self.modelFile)):
             print('Training...')
-
             IDs, x_occ, y_labels, parentDir = self.extractor.countOccurrence(self.trainPath, sparkContext)
             if(not 'none' in self.dimHandler.name.lower()):
                 x_occ = self.dimHandler.trainMethod(x_occ, y_labels)
@@ -100,10 +93,8 @@ class ML:
             self.classifier = joblib.load(self.modelFile)
             print('Model loaded. \nPredicting...')
 
-
         if('randomforest' in self.classif.lower() and not os.path.isfile(self.extractor.featFile + 'importance')):
             self.getRFImportance()
-
 
         if('validation' in self.task):
             IDs, x_occ_val, y_labels_val, parentDir = self.extractor.countOccurrence(self.validPath, sparkContext)
@@ -128,7 +119,6 @@ class ML:
 
 
     def getPredictions(self, IDs, occ, labels):
-
         if ('outlier' in self.classif.lower()):
             predLabels = self.classifier.fit_predict(occ)
         else:
@@ -165,9 +155,6 @@ class ML:
                                            columns=['importance']).sort_values('importance', ascending=False)
 
         Utils.writeFile(self.extractor.featFile + 'importance', feature_importances.to_string())
-
-        # visuals = Visuals.Visuals()
-        # visuals.generateTree(self.extractor.loadFeatures(), self.classifier.estimators_, self.modelFile)
 
 
     def getMaxLen(self):
@@ -219,7 +206,6 @@ class ML:
             return LOF()
 
 
-
     def getMetrics(self, score, pLabels, rLabels):
         output = 'Mean accuracy:\t' + str(score) + '\n'
         prfscore = pfrs(rLabels, pLabels)
@@ -259,6 +245,3 @@ class ML:
 
 if __name__ == '__main__':
     ML().main()
-
-
-
