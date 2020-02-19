@@ -228,3 +228,25 @@ def mergeByClusterIds(source, filterIds):
         result.append(content)
 
     return result, clusterdic
+
+# merges a list of cluster genes into a
+# list of clusters (by cluster gene ID)
+def mergeGenesToClusters(genes):
+    output = []
+    previousId = ''
+    length = len(genes)
+    for i, gene in enumerate(genes):
+        id = gene.split('|')[0]
+        seq = gene.split('\n')[1]
+
+        if (id in previousId):
+            entry += seq
+        else:
+            if(previousId):
+                output.append(entry)
+            previousId = id
+            entry = id + '\n' + seq
+
+    output.append(entry)
+
+    return output
