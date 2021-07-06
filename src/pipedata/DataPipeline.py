@@ -67,7 +67,7 @@ class DataPipeline:
             blastRDD = sourceRDD.map(lambda x: blaster.main("", x[0], db=x[1]))
             result = blastRDD.collect()
         else:
-            blastRDD = sourceRDD.map(lambda x: blaster.main(x[0], x[1], db=""))#.map(lambda x: self.processBlastOutput(x[0], x[1]))
+            blastRDD = sourceRDD.map(lambda x: blaster.main(x[0], x[1], db=""))
             result = blastRDD.collectAsMap()
 
         return result

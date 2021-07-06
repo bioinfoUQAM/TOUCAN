@@ -37,21 +37,25 @@ class BLASTer:
 
         useTempFile = False
         tempFile = ""
+
         if(not os.path.isfile(sequence)):
             useTempFile = True
 
+        mode = ''
         if(useTempFile):
             # if query is a sequence, create a temp file
             tempLine = str(sequence).split('\n')[0]
             tempLine = tempLine.split(' ') if ' ' in tempLine else tempLine.split('|')
             tempLine = tempLine[0] + tempLine[len(tempLine)-1]
             tempFile = tempLine + '.temp'
+            mode = 'w+'
         else:
             # if query is a file, do not create a file
             tempFile = sequence
+            mode = 'r'
 
         # create/open temp file in project directory
-        with open(tempFile, 'r+') as tempfile:
+        with open(tempFile, mode) as tempfile:
             # write sequence in a temp file, and return cursor to file position 0
             if(useTempFile):
                 tempfile.write(str(sequence))
@@ -104,12 +108,15 @@ class BLASTer:
 
     def parseMapping(self, id, result):
         goIds = set()
+
         for item in result:
             idsFromBlast = self.mapping.loc[(self.mapping['entry'].str.contains(item))]
             theseIds = idsFromBlast['goids'].drop_duplicates().values.tolist()
-            theseIds = ''.join(theseIds).split(';')
+            theseIds = ''.join(map(str, theseIds)).split(';')
             goIds.update(theseIds)
 
         goIds = '\n'.join(goIds).replace(' ','')
 
         return id, goIds
+
+

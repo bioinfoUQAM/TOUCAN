@@ -22,7 +22,14 @@ class Extractor:
          self.sourceType = config.get('prediction', 'source.type')
          self.size = config.get('prediction', 'feat.size')
          self.minOcc = config.get('prediction', 'feat.minOcc')
+         outputPath = Utils.normalizePath(outputPath)
          self.featFile = outputPath + self.featType
+         self.cv = self.config.getboolean('prediction', 'use.crossvalid')
+         self.task = self.config.get('prediction', 'task')
+         if ('cross' in self.task):
+             self.cv = True
+         if self.cv:
+             self.featFile += '.cv'
          if ('kmers' in self.featType):
              kmerfeats = 'kmers' + str(self.size) + '_minOcc' + str(self.minOcc)
              self.featFile = self.featFile.replace('kmers', kmerfeats)
@@ -73,10 +80,11 @@ class Extractor:
                     featuresRDD = featuresRDD.filter(lambda x: "protanalys" not in x[0])
 
                 # get a flat list of all features
-                if(useDistinct):
-                    completeFeatures = featuresRDD.flatMap(lambda x: x[1]).distinct()
-                else:
-                    completeFeatures = featuresRDD.flatMap(lambda x: x[1])
+                #if(useDistinct):
+                 #   completeFeatures = featuresRDD.flatMap(lambda x: x[1]).distinct()
+                #else:
+                    #completeFeatures = featuresRDD.flatMap(lambda x: x[1])
+                completeFeatures = featuresRDD.flatMap(lambda x: x[1]).distinct()
                 feats += completeFeatures.collect()
 
                 if (len(feats) > 1):
@@ -101,7 +109,7 @@ class Extractor:
 
     def getFeatures(self, info):
         # receives tuple in format:
-        # ((fileName, content), featureType)
+        # ((fileName, content, sequenceID), featureType)
         type = info[1]
         content = info[0][1]
 
@@ -140,6 +148,9 @@ class Extractor:
             else:
                 feature = " ".join(feature)
             if(len(feature) > 1):
+            # Comment out next line to keep domain name:
+                if('.' in feature):
+                    feature = feature.split('.')[0]
                 feats.append(feature)
         return feats
 
@@ -203,6 +214,43 @@ class Extractor:
 
         print('Features loaded.')
         return np.array(ids), np.array(occ), np.array(labels), parentDir
+
+
+
+    def extractRewardPerFeat(self, dataPath, outputPath, featType, sourceType, rewardType):
+
+        rewardperfeat = {}
+        # tuple of shape {(file, content, id),'kmers'}
+        resultLabel = Parsers.parseDatasetContents(dataPath, featType, sourceType)
+        fileindex = list(set([i[0][0] for i in resultLabel]))
+
+        for item in resultLabel:
+            filename = item[0][0]
+            label = Utils.getLabel(filename)
+            content = item[0][1]
+            idx = fileindex.index(filename)
+            occ = 1 if label == 1 else -1
+
+            if(content in rewardperfeat):
+                if('label' in rewardType):
+                    rewardperfeat[content][idx] = occ
+                else:
+                    rewardperfeat[content][idx] += occ
+            else:
+                rewardperfeat[content] = [0] * len(fileindex)
+                if('label' in rewardType):
+                    rewardperfeat[content][idx] = occ
+                else:
+                    rewardperfeat[content][idx] += occ
+
+        outputstr = ''
+        for k, v in rewardperfeat.items():
+            outputstr += k + '\t' + (',').join(map(str, v)) + '\n'
+        Utils.writeFile(outputPath, outputstr[:-1])
+
+        return rewardperfeat
+
+
 
 
     def filterLen(self, thisTup, feats):

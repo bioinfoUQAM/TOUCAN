@@ -25,7 +25,10 @@ class DomainFinder:
 
         tempLine = str(content).split('\n')[0]
         tempLine = tempLine.split(' ')[0] if ' ' in tempLine else tempLine.split('|')[0]
-        tempFile = tempLine.replace('>','') + '.temp'
+        temp = tempLine.split('|') if '|' in tempLine else tempLine
+        #temp = temp[0] + '_' + temp[len(temp) - 1] if len(temp) > 1 else temp
+        tempFile = temp if temp else tempLine
+        tempFile = tempFile.replace('>','') + '.temp'
 
         with open(tempFile, 'w+') as tempfile:
             # write sequence in a temp file, and return cursor to file position 0

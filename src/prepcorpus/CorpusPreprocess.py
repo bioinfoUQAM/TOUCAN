@@ -1,13 +1,12 @@
 import os                   # for IO operations
-from Bio import SeqIO       # for bio parsing
 from utils import UtilMethods as Utils
 from utils import Parsers
 import random
-import math
-from shutil import copy, copy2
+from shutil import copy
 from pipedata import DataPipeline
 from pyspark import SparkContext
-import itertools
+import pandas
+from io import StringIO
 
 ###############
 # Processes corpus files.
@@ -59,8 +58,8 @@ class CorpusPreprocess:
             else:
                 print('Result path already exists.')
     
-        if('selectvalid' in self.task):
-            self.selectValidationSplit()
+        if('createdataset' in self.task):
+            self.createDataset()
     
         if('domain' in self.task):
             self.createDomainDataset()
@@ -82,23 +81,46 @@ class CorpusPreprocess:
     def createSimilarityMatrix(self):
         source_type = self.config.get('dataPipeline', 'source.type')
         list = Utils.listFilesExt(self.source_path, "fasta")
+        outputFile = self.result_path + '/similarity.blast'
+        outputRedFile = self.result_path + '/similarity.blast.similarity'
+        similarity = ""
+        columns = ['qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen', 'qstart', 'qend', 'sstart',
+                   'send', 'evalue', 'bitscore', 'qcovs']
 
-        # generate all gene pairs within a genome
-        allpairs = {(i,j) for i in list for j in list}
-        # filter out duplicate pairs, e.g. (2,8) and (8,2)
-        file_content = set(tuple(sorted(p)) for p in allpairs)
+        if(not os.path.isfile(outputFile)):
 
-        datapipe = DataPipeline.DataPipeline(source_type=source_type, source_path=self.source_path, result_path=self.result_path)
+            # generate all gene pairs within a genome
+            allpairs = {(i,j) for i in list for j in list}
+            # filter out duplicate pairs, e.g. (2,8) and (8,2)
+            file_content = set(tuple(sorted(p)) for p in allpairs)
 
-        sparkContext = SparkContext(conf=datapipe.initSpark("blastSimilarity"))
-        similarity = datapipe.getBLAST(file_content, sparkContext, blastTask="similarity")
+            datapipe = DataPipeline.DataPipeline(source_type=source_type, source_path=self.source_path, result_path=self.result_path)
 
-        result = ""
-        for entry in similarity:
-            if(entry[1]):
-                result += entry[1] + "\n"
+            sparkContext = SparkContext(conf=datapipe.initSpark("blastSimilarity"))
+            similarity = datapipe.getBLAST(file_content, sparkContext, blastTask="similarity")
 
-        Utils.writeFile(self.result_path + '/similarity.blast', result)
+            result = ""
+            for entry in similarity:
+                if(entry[1]):
+                    result += entry[1] + "\n"
+
+            Utils.writeFile(outputFile, result)
+            df = pandas.read_csv(StringIO(result), sep='\t', names=columns, index_col=False)
+
+        else:
+            df = pandas.read_csv(outputFile, sep='\t', names=columns, index_col=False)
+
+        # generate leaner matrix with only selected columns,
+        # output to new file
+        if(not os.path.isfile(outputRedFile)):
+            df = df[['qseqid', 'sseqid', 'pident', 'bitscore', 'qcovs']]
+            df['id'] = df[['qseqid', 'sseqid']].agg('|'.join, axis=1)
+            df.drop('qseqid', 1)
+            df.drop('sseqid', 1)
+            df = df[['id', 'pident', 'bitscore', 'qcovs']]
+            df = df.sort_values('id')
+            df.to_csv(sep='\t', header=True, path_or_buf=outputRedFile, index=False)
+
         print('done!')
 
 
@@ -115,6 +137,7 @@ class CorpusPreprocess:
 
         datapipe = DataPipeline.DataPipeline(source_type=source_type, source_path=self.source_path, result_path=self.result_path)
         list, file_content = Parsers.parseFastaToList(self.source_path, "")
+        file_content = [content for content in file_content if not os.path.isfile(self.result_path + os.path.basename(content[0]).replace('.fasta', '.go'))]
 
         sparkContext = SparkContext(conf=datapipe.initSpark("goDataset"))
         goterms = datapipe.getBLAST(file_content, sparkContext, blastTask="goTerms")
@@ -143,6 +166,8 @@ class CorpusPreprocess:
     def createDomainDataset(self):
         useID  = True
         files = Utils.listFilesExt(self.source_path, self.ext)
+        files = [fileName for fileName in files if not os.path.isfile(self.result_path + os.path.basename(fileName).replace('.fasta', '.domains'))]
+
         source_type = self.config.get('dataPipeline', 'source.type')
         count = 0
         countNone = 0
@@ -186,7 +211,9 @@ class CorpusPreprocess:
         print('Done generating', str(count), 'domain files. \nNo domain found for', str(countNone), 'files.' )
     
     #################################
-    
+    # shuffles content of negative sequences
+    # (order of nucleotides or aminoacids)
+    #################################
     def createNegShuffle(self, posPerc):
         files = Utils.listFilesExt(self.source_path, self.ext)
         negPerc = 100 - posPerc
@@ -237,13 +264,13 @@ class CorpusPreprocess:
     # Splits randomly "*.fasta" files from given
     # directory into train and validation
     #################################
-    def selectValidationSplit(self):
+    def createDataset(self):
         neg_path = Utils.normalizePath(self.negPath)
         pos_path = Utils.normalizePath(self.posPath)
         negatives = Utils.listFilesExt(neg_path, self.ext)
         positives = Utils.listFilesExt(pos_path, self.ext)
-        subject = ''
-    
+        subject = Utils.normalizePath(self.result_path)
+
         negLen = len(negatives)
         posLen = len(positives)
         negPerc = 100 - self.posPerc
@@ -253,12 +280,12 @@ class CorpusPreprocess:
             print("Not enough negative instances. Try another %")
             exit()
         else:
-            try:
-                subject = self.corpus_path + '/' + os.path.basename(os.path.dirname(negatives[0]))
-            except IndexError:
+            if(not negatives or not positives):
                 print('List of files was empty. '
                       'Please check \'neg.path\' and \'pos.path\' in the self.config file.')
-    
+
+            subject += 'pos' + str(self.posPerc)
+
             if(len(subject) > 1):
                 os.makedirs(subject, exist_ok=True)
                 destTrain = subject + '/train/'
@@ -292,7 +319,7 @@ class CorpusPreprocess:
     
                     # select randomly corresponding nb of negatives
                     negatives = random.sample(negatives, int(negTotal-len(validNegatives)))
-    
+
                     train = negatives + positives
                     validation = validPositives + validNegatives
     
@@ -315,7 +342,6 @@ class CorpusPreprocess:
         self.source_path = Utils.normalizePath(self.source_path)
         slimIDs = self.config.getboolean('corpusPrep', 'slim.id')
         files = Utils.listFilesExt(self.source_path, self.ext)
-        slimIDs = self.config.getboolean('corpusPrep', 'slim.ids')
         result = []
     
         overlap = int((self.windowOverlap / 100) * self.length)
@@ -326,33 +352,32 @@ class CorpusPreprocess:
             self.result_path = self.result_path + fileName + '_len' + str(self.length) + '_overlap' + str(self.windowOverlap)
             if(slimIDs):
                 self.result_path += '_slimIDs'
-            self.result_path += '/'
+            #self.result_path += '/'
+            self.result_path += '.fasta'
     
-            if(os.path.isdir(self.result_path)):
-                print('Path already exists: ' + self.result_path + '.\nDone.')
+            if(os.path.isfile(self.result_path)):
+                print('File already exists: ' + self.result_path + '.\nDone.')
     
             else:
-                os.makedirs(os.path.dirname(self.result_path), exist_ok=True)
+                file = Parsers.sortFasta(file)
                 sequences = Parsers.parseFasta(file)
-                content = ''
-                ids = ''
-                entry = ''
+                content, ids, entry, overlapIds = '', '', '', ''
                 for fasta in sequences:
                     content += str(fasta.seq.upper())
                     ids +=  str(fasta.id) if not ids else '|' + str(fasta.id)
+
                     if(slimIDs):
                         allIds = ids.split('|')
                         ids = allIds[0] + '|to|' + allIds[len(allIds)-1]
-    
-                    # while (len(content) > length):
+
                     while(len(content) > 0):
-    
                         varSize = self.length-(len(entry))
+                        if (varSize <= overlap):
+                            overlapIds += str(fasta.id) if not overlapIds else '|' + str(fasta.id)
                         entry += content[0:varSize]
     
                         if(len(entry) == self.length):
-                            # move cursor on real sequence
-                            # according to variable length added
+                            # move cursor on real sequence according to variable length added
                             content = content[varSize:]
                             # add chunk to list
                             if (slimIDs):
@@ -363,7 +388,8 @@ class CorpusPreprocess:
                             entry = entry[len(entry)-overlap:]
     
                             if (len(content) > 0):
-                                ids = ids[ids.rfind('|') + 1:]
+                                ids = overlapIds
+                                overlapIds = ''
                             else:
                                 ids = ''
     
@@ -373,21 +399,9 @@ class CorpusPreprocess:
                 prev = 0
                 pos = self.length
 
-                for i, item in enumerate(result):
-                    if(slimIDs):
-                        if( i > 0 and (i % 350 == 0 or  i == len(result)-1)):
-                            path = self.result_path+ fileName + '_' + str(prev) + '_' + str(i) + '.fasta'
-                            Utils.writeFile(path, str(content[:-1]))
-                            prev = i
-                        else:
-                            content += str(item + '\n')
+            result = '\n'.join(result)
+            Utils.writeFile(self.result_path, result)
 
-                    else:
-                        path = self.result_path + fileName + '_' + str(prev) + '_' + str(pos) + '.fasta'
-                        Utils.writeFile(path, str(result[i]))
-                        prev += self.length-overlap
-                        pos += self.length-overlap
-    
         print('Done.')
     
 
