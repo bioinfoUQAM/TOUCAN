@@ -1,10 +1,126 @@
 from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
+from Bio.Alphabet import IUPAC
+from gff3 import Gff3
 from utils import UtilMethods as Utils
-import os
+from collections import OrderedDict
+import os, re
 
 ###############
 # Parser methods.
 ################
+
+
+def orthogroupSeqs(orthofile, seqpath, limit):
+    orthodir = os.path.dirname(seqpath)
+    ortholines = Utils.readFileLines(orthofile)[1:]
+    seqpath = Utils.listFilesExt(seqpath, "fasta")
+    threshold =  limit if(limit) else len(seqpath)
+    orthogroups = [re.split('\t|;|,', item)[1:] for item in ortholines][1:threshold+1]
+    sequences, output = dict(), dict()
+
+    print('Loading files and seqIDs...')
+    for seqfile in seqpath:
+        sequences.update(SeqIO.index(seqfile, "fasta"))
+
+    orthodir = orthodir + '/orthologs_threshold' + str(threshold) + '/'
+
+    if os.path.isdir(orthodir):
+        print('Orthogroup path', orthodir, 'already exists.')
+        exit()
+    else:
+        os.makedirs(orthodir)
+
+        print('Loading sequences per IDs...')
+        for group in orthogroups:
+            for id in group:
+                id = id.strip(' ')
+                tempseq = sequences.get(id)
+
+                if(tempseq is not None and len(tempseq) > 1):
+                    thisseqfile = orthodir + tempseq.id + '.fasta'
+                    content = '>' + tempseq.id + '\n' + tempseq.seq
+                    Utils.writeFile(thisseqfile, content)
+                # else:
+                #     print('ID not found', str(id))
+
+    print('Done writing seqs for orthogroups.')
+    return output
+
+
+
+def clustersToGFF(clusterspath, gffpath, goldpath, annotpath, source_type):
+    gffcontent = Gff3(gffpath)
+    clustercontent, goldContent, annotationContent = "","",""
+
+    clustercontent = Utils.readFileLines(clusterspath)
+    clusters = Utils.foldClusterData(clustercontent, "", 0.5) if 'score' in clusterspath else Utils.foldClusterData(clustercontent, "gold", "")
+
+    goldContent = '\t'.join(Utils.readFileLines(goldpath)) if goldpath else ""
+    annotationList = Utils.readFileLines(annotpath) if annotpath else ""
+    annotationContent = ('\n').join(annotationList) if annotpath else ""
+
+    # sort dict by key
+    clusters = OrderedDict(sorted(clusters.items(), key=lambda x: x[0]))
+    gffclusterfile = clusterspath.rsplit('.',1)[0] + '.percluster.gff3'
+    gffgenefile = clusterspath.rsplit('.',1)[0] + '.pergene.gff3'
+
+    outputcluster, outputgene = "##gff-version 3\n", "##gff-version 3\n"
+    # filter only "mRNA" features, return dict {gene name, gff line}
+    mRNAdict = {line['attributes']['Name'].replace('.1',''):line  for line in gffcontent.lines if line['type'] == 'mRNA'}
+
+    for key, value in clusters.items():
+        for gene in value:
+            gene = gene.replace('.1', '')
+            thisgene = mRNAdict.get(gene)
+
+            if(thisgene is not None):
+                chr = thisgene['seqid']
+                position = str(thisgene['start']) + '\t' + str(thisgene['end'])
+                score = '?'
+                strand = thisgene['strand']
+                phase = thisgene['phase']
+                info = 'Name=' + gene + ';Note=' + key + '\n'
+
+                if(goldContent):
+                    if(gene in annotationContent):
+                        annot = [item for item in annotationList if gene in item]
+                        annot = annot[0].split('\t')[1] if annot else ''
+                        if('backbone' in annot):
+                            info = info.replace("\n", ";color=#EE0000\n") # red
+                        elif('tailor' in annot):
+                            info = info.replace("\n", ";color=#EE9300\n")  # orange
+                        elif('transcript') in annot:
+                            info = info.replace("\n", ";color=#048014\n")  # forest green
+                        elif('transport' in annot):
+                            info = info.replace("\n", ";color=#1888f0\n")  # light blue
+                    elif(gene in goldContent):
+                        info = info.replace("\n", ";color=#9931f2\n") # bright purple
+                outputgene += chr + '\t' + source_type + '\t' + position + '\t' + score + '\t' + strand + '\t' + phase + '\t' + info
+
+            else:
+                print('gene not found:', gene)
+
+        startID = value[0].replace('.1', '')
+        endID = value[-1].replace('.1', '')
+        startGene = mRNAdict.get(startID)
+        endGene = mRNAdict.get(endID)
+        chr = startGene['seqid']
+        position = str(startGene['start'])  + '\t' + str(endGene['end'])
+
+        strand = startGene['strand']
+        phase = startGene['phase']
+        score = '?'
+        info = 'Name=' + key + ';Note=' +('|').join(value) + '\n'
+        outputcluster += chr + '\t' + source_type + '\t' + position + '\t' + score + '\t' + strand + '\t' + phase + '\t' + info
+
+    Utils.writeFile(gffclusterfile, outputcluster)
+    Utils.writeFile(gffgenefile, outputgene)
+
+    return gffcontent
+
+
 
 
 def parseDatasetContents(dataPath, featType, sourceType):
@@ -32,24 +148,38 @@ def parseDatasetContents(dataPath, featType, sourceType):
 
     for file in files:
         ext = os.path.splitext(file)[1]
+        lines = Utils.readFileLines(file)
+        #handle genes with an added version number as NRRL3_00129.1
+        id = lines[0].replace('>','').replace('a','').split('.')[0]
         if ('fasta' in ext):
-            content = Utils.readFileLines(file)[1].upper()
+            #content = Utils.readFileLines(file)[1].upper()
+            content = lines[1].upper()
             content = normalizeSequence(content, sourceType)
             if('kmers' in featType):
-                result.append(((file, content),'kmers'))
+                result.append(((file, content, id),'kmers'))
             if('prot' in featType):
-                result.append(((file, content), 'protanalys'))
+                result.append(((file, content, id), 'protanalys'))
 
         elif ('domain' in ext):
-            content = Utils.readFileLines(file)[1:]
-            content = [line.split('|')[0] for line in content]
+            #content = Utils.readFileLines(file)[1:]
+            content = lines[1:]
+            # Comment out next line to keep domain name:
+            content = [line.split('.')[0] for line in content]
             content = "\n".join(content)
-            result.append(((file, content), 'domains'))
+
+            if('pfam' in featType):
+                temp = content.split('\n')
+                for entry in temp:
+                    result.append(((file, entry, id), 'domains'))
+            else:
+                if(content):
+                    result.append(((file, content, id), 'domains'))
 
         elif ('go' in ext):
-            content = Utils.readFileLines(file)[1:]
+            #content = Utils.readFileLines(file)[1:]
+            content = lines[1:]
             content = "\n".join(content)
-            result.append(((file, content), 'go'))
+            result.append(((file, content, id), 'go'))
 
     return result
 
@@ -65,12 +195,58 @@ def normalizeSequence(content, sourceType):
     return result
 
 
+def translateGenBank2file(input):
+
+    results = parseGenBank(input)
+    region = input.split('region')[1].replace('.gbk', '')
+    outputseq = input.replace('gbk', 'fasta')
+    outputtranslate = outputseq.replace('/fasta', '/fastatranslation')
+
+    for record in results:
+        uniqueid = record.id + region
+        proteinseq = record.seq.translate()
+        descript = record.annotations.get('organism')
+        translation = ''
+        for item in record.features:
+            try:
+                if(item.qualifiers['translation']):
+                    translation += item.qualifiers['translation'][0]
+            except:
+                pass
+
+        tempseq = SeqRecord(id=uniqueid, seq=proteinseq, description=descript)
+        temptranslate = SeqRecord(id=uniqueid, seq=Seq(translation, IUPAC), description=descript)
+        SeqIO.write(tempseq, outputseq, 'fasta')
+        SeqIO.write(temptranslate, outputtranslate, 'fasta')
+
+
+    # for record in parseFasta(input):
+    #     recid = str(record.id).split('|')
+    #     uniqueid = recid[0] + '_' + recid[1]
+    #     # get description without id
+    #     descript = str(record.description).replace(('|').join(recid[0:2]),'')
+    #     filename = outputpath + uniqueid + '.fasta'
+    #     proteinseq = record.seq.translate()
+    #     temp = SeqRecord(id=uniqueid, seq=proteinseq, description=descript)
+    #     SeqIO.write(temp, filename, 'fasta')
+
+
 # parse fasta using biopython
 def parseFasta(entry):
-    if(os.path.isfile(entry)):
+    if (os.path.isfile(entry)):
         entry = open(entry)
-
     return SeqIO.parse(entry, 'fasta')
+
+
+def sortFasta(entry):
+    filename = str(entry)
+    if('sorted' not in entry):
+        filename = filename.replace('.fasta', '_sorted.fasta')
+    if(not os.path.isfile(filename)):
+        records = list(SeqIO.parse(entry, 'fasta'))
+        records.sort(key=lambda seq: seq.id)
+        SeqIO.write(records, filename, 'fasta')
+    return filename
 
 
 # parse fasta using biopython

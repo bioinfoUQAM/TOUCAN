@@ -4,6 +4,7 @@ import os
 import pandas
 import numpy as np
 import gzip
+from pyspark import SparkConf
 
 ###############
 # Util methods for IO.
@@ -46,8 +47,43 @@ def loadTargetClusterList(targetClusters):
             if(len(line) > 1):
                 (key, val) = line.replace('\n','').replace(' ','_').split('\t')
                 dic[key] = val
-
     return dic
+
+
+def foldClusterData(list, filetype, threshold):
+    unique = {}
+    list = [line for line in list[2:] if float(line.split('\t')[2]) >= threshold] if not filetype else list
+    list = sorted(list)
+    for entry in list:
+        id, gene = '', []
+        if('gold' in filetype):
+            id = entry.split('\t')[0]
+            gene.append(entry.split('\t')[1])
+        else:
+            line = entry.split('\t')
+            id = line[1]
+            gene = line[3].split('|')
+
+        if (unique.get(id) is None):
+            unique[id] = gene
+        else:
+            if(not set(gene).issubset(unique[id])):
+                unique[id].extend(gene)
+
+    return unique
+
+
+def unfoldResultData(threshold, list):
+    unique = set()
+    pos = [x for x in list if float(x.split('\t')[1]) >= threshold]
+    for entry in pos:
+        genes = entry.split('|')
+        for gene in genes:
+            gene = gene.split('\t')[0]
+            if(gene):
+                unique.add(gene)
+
+    return pos, unique
 
 
 def getFileName(path):
@@ -84,7 +120,8 @@ def normalizePath(path):
 #IO
 def readFileLines(file):
     if(os.path.exists(file)):
-       return [line.rstrip('\n') for line in open(file)]
+        with open(file) as thisfile:
+            return [line.rstrip('\n') for line in thisfile]
     else:
         print('File does not exist: ' + file)
         return ""
@@ -117,11 +154,10 @@ def getSpecies(path):
 
 # provide label according to filename
 def getLabel(filename):
-
-    if 'negative' in filename:
-        return 0
-    else:
+    if 'bgc' in str(filename).lower():
         return 1
+    else:
+        return 0
 
 
 # list files in a directory
@@ -131,3 +167,16 @@ def listFilesExt(path, extension):
         return files
     else:
         print('Path does not exist: ' + path)
+        exit()
+
+def getSparkConf(name):
+    conf = SparkConf().setAppName(name)
+    conf = (conf.setMaster('local[*]')
+            .set('spark.executor.memory', '8G')
+            .set('spark.driver.memory', '50G')
+            .set('spark.driver.maxResultSize', '50G')
+            .set('spark.network.timeout', '10000s')
+            .set('spark.executor.heartbeatInterval', '120s')
+            .set('spark.pyspark.python', os.path.dirname(__file__).join('.env/bin/python')))
+
+    return conf
