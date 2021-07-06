@@ -48,32 +48,30 @@ hmmerBin.path =     ${pfamScan.path}/hmmer/bin/
 # task type: 'train', 'validation', 'test'
 task =              train
 source.path =       ${corpusPrep:corpus.home}/path/to/corpus
-# source type ->  (if using sequences) nucleotide, aminoacid
+# source sequence type ->  nucleotide, aminoacid, domains
 source.type =       aminoacid
 use.crossvalid =    False
 # percentage of positives in the train (path) dataset
 pos.perc =          50
 dict.path =         ${default:home}/Databases/path/to/dict
 # feature type: 'domains', 'kmers', 'dictionary'
-feat.type =         domains
-feat.minOcc =       2
-feat.size =         3
-# if no feature reduction, set to 'none'
+feat.type =         go-kmers-domains
+feat.minOcc =       3
+feat.size =         6
 feat.reduc =        none
-# classifier ->     'mlp', 'nusvc', 'svc', 'linearsvc', 'randomforest', 'logit'
-classifier =        mlp
-###### DL ONLY ######
-nb.gpus =           0
-# initial epoch to resume saved model (0 if no model to load)
-initial.epoch =     0
-use.embeddings =    True
-embeddings.length = 50
-# CBOW or Skipgram
-embeddings.type =   cbow
-class.weights =     True
-#nn arch type ->   LSTM, CNN
-nn.type =           lstm
-#####################
+###### parametes: ML ######
+# ML classifier ->     'mlp', 'nusvc', 'svc', 'linearsvc', 'randomforest', 'logit'
+classifier =        randomforest
+###### parametes: RL ######
+episodes =          500
+alpha =             0.01
+gamma =             0.01
+epsilon =           0.01
+penalty.threshold = 0
+keepskip.threshold = 0.5
+neighbor.weight =   False
+dry.islands =       False
+average.action =    False
 
 [eval]
 # task type: 'evaluate', 'summarize'
@@ -87,5 +85,15 @@ threshold =         0.5
 successive =        0
 # merge positive clusters: 'True' or 'False'
 merge = False
+# use majority from overlap
+majority =          False
+gene.length =       ${default:home}/Databases/path/to/geneLengthMap
+gene.map =          ${default:home}/Databases/path/to/geneMap
+weights =           ${default:home}/Databases/path/to/componentAnnotation
 # use similarity scores: True or False
 similarity =        False
+q.filter =          False
+rule.filter =       False
+rule.list =         ${default:home}/path/to/domainsToFilter
+split =             False
+split.threshold =   3
