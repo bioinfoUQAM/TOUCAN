@@ -48,7 +48,7 @@ pkg-resources==0.0.0
 plotly==3.5.0
 pluggy==0.6.0
 protobuf==3.7.1
-py==1.5.3
+py==1.10.0
 py4j==0.10.6
 pydot==1.2.4
 pypandoc==1.4
